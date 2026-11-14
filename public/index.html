@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0b0d12" />
+  <title>opencode web</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='24' fill='%2310b981'/><text y='.9em' x='50%' text-anchor='middle' font-size='52'>🜲</text></svg>" />
+  <link rel="stylesheet" href="/style.css" />
+  <link rel="stylesheet" href="/vendor/hljs-theme.css" />
+  <link rel="stylesheet" href="/vendor/katex.min.css" />
+</head>
+<body>
+  <div id="app">
+    <!-- ── Sidebar: sessions ─────────────────────────────── -->
+    <aside id="sidebar">
+      <div class="side-head">
+        <div class="logo"><span class="logo-mark">⟡</span> opencode<span class="logo-dim">web</span></div>
+        <button id="btn-close-side" class="icon-btn only-mobile" title="Close">✕</button>
+      </div>
+
+      <button id="btn-new" class="new-chat">
+        <span class="plus">＋</span> New chat
+      </button>
+
+      <div class="side-label">Recent</div>
+      <div id="sessions" class="session-list"></div>
+
+      <div class="side-foot">
+        <label class="toggle-row">
+          <span class="switch"><input type="checkbox" id="chk-tts" /><i></i></span>
+          <span>Speak replies</span>
+        </label>
+      </div>
+    </aside>
+    <div id="backdrop"></div>
+
+    <!-- ── Main chat column ──────────────────────────────── -->
+    <main id="main">
+      <header id="topbar">
+        <button id="btn-menu" class="icon-btn only-mobile" title="Sessions">☰</button>
+        <select id="sel-project" title="Workspace directory"></select>
+        <select id="sel-model" title="Model"></select>
+        <span id="conn" class="conn"><i class="dot"></i>connecting…</span>
+      </header>
+
+      <div id="chat">
+        <div id="empty" class="empty">
+          <div class="hero-mark">⟡</div>
+          <h1>What should we build today?</h1>
+          <p class="sub">Your real OpenCode agent — every tool, every model, on this laptop.</p>
+          <div class="chips">
+            <button class="chip">What's my laptop config?</button>
+            <button class="chip">Make a new project on my Desktop</button>
+            <button class="chip">Check my Docker containers</button>
+            <button class="chip">Summarize my nginx-notes repo</button>
+          </div>
+        </div>
+        <div id="banner-slot"></div>
+        <div id="messages"></div>
+      </div>
+
+      <div id="composer">
+        <div id="perm-slot"></div>
+        <div id="tts-indicator" class="tts-indicator" hidden>
+          <span class="eq"><i></i><i></i><i></i><i></i></span> speaking · <u>tap to stop</u>
+        </div>
+        <div class="input-row">
+          <button id="btn-mic" title="Voice input (Chrome)">🎤</button>
+          <textarea id="input" rows="1" placeholder="Message opencode…  (Shift+Enter for newline)"></textarea>
+          <button id="btn-send" class="send" title="Send" disabled>➤</button>
+        </div>
+        <div id="mic-status"></div>
+      </div>
+    </main>
+  </div>
+
+  <!-- ── Voice overlay: shown while the mic listens ───────── -->
+  <div id="voice-overlay" hidden>
+    <div class="orb">
+      <div class="ring r1"></div>
+      <div class="ring r2"></div>
+      <div class="ring r3"></div>
+      <div class="core">🎤</div>
+    </div>
+    <div class="wave"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+    <div id="voice-text">Listening…</div>
+    <div class="voice-hint">tap anywhere to stop</div>
+  </div>
+
+  <script src="/vendor/marked.min.js"></script>
+  <script src="/vendor/purify.min.js"></script>
+  <script src="/vendor/hljs.min.js"></script>
+  <script src="/vendor/katex.min.js"></script>
+  <script src="/vendor/auto-render.min.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>
