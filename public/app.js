@@ -27,6 +27,9 @@ const state = {
   spoken: new Set(),   // assistant messageIDs already read aloud
   titles: {},          // sessionID -> known title
   titleOrigin: {},     // sessionID -> "auto" | "user" | "server"
+  freeModels: [],      // every free opencode model we may switch to
+  lastUserText: "",    // what to replay when a model gets rate-limited
+  fallback: { tried: new Set(), busy: false },
 };
 
 /* ── tiny fetch helpers ─────────────────────────────────── */
@@ -90,6 +93,7 @@ function bindUI() {
   qs("#sel-model").onchange = (e) => {
     state.model = JSON.parse(e.target.value);
     localStorage.setItem("ocw.model", JSON.stringify(state.model));
+    state.fallback.tried.clear(); // a manual pick gets a fresh fallback budget
   };
 
   // mobile drawer
@@ -155,6 +159,8 @@ async function loadModels() {
     // ── group 1: opencode's free models (the star of the show)
     const oc = (cfg.providers || []).find((p) => p.id === "opencode");
     if (oc) {
+      // remember them: if the picked one hits the free-tier cap we hop to the next
+      state.freeModels = Object.keys(oc.models || {});
       const g = document.createElement("optgroup");
       g.label = "⚡ OpenCode · free models";
       for (const id of Object.keys(oc.models || {})) {
@@ -226,6 +232,8 @@ function markActive() {
 function clearChat() {
   state.sessionID = null;
   state.status = null;
+  state.lastUserText = "";
+  state.fallback.tried.clear();
   state.messages.clear();
   qs("#messages").innerHTML = "";
   qs("#banner-slot").innerHTML = "";
@@ -286,10 +294,15 @@ function sendCurrent() {
   updateSendEnabled();
 }
 
-async function send(text) {
+async function send(text, opts = {}) {
   stopSpeaking();
   if (!state.sessionID) await newSession();
   if (!state.sessionID) return;
+  // a fresh user message starts a new fallback budget; a replay keeps it
+  if (!opts.replay) {
+    state.fallback.tried.clear();
+    state.lastUserText = text;
+  }
   // auto-title: first question names the chat in the sidebar
   autoTitle(state.sessionID, text);
   state.busy = true;
@@ -305,6 +318,85 @@ async function send(text) {
     state.busy = false;
     updateSendBtn();
     addSystemNote("Failed to send: " + e.message);
+  }
+}
+
+/* ── free-tier limit → hop to another free model ──────────
+ * The free models share one account-wide allowance, so any of them can
+ * answer "Free usage exceeded · retry at HH:MM". Instead of leaving the
+ * user stuck, we stop the run and replay the same message on the next
+ * free model. Guarded so it can never loop forever. */
+
+const LIMIT_RE = /free usage|usage limit|rate limit|quota|too many requests|\b429\b/i;
+
+function isLimitStatus(s) {
+  if (!s) return false;
+  const text = (s.message || "") + " " + (s.type || "");
+  return LIMIT_RE.test(text);
+}
+
+function setModel(m) {
+  state.model = m;
+  localStorage.setItem("ocw.model", JSON.stringify(m));
+  const sel = qs("#sel-model");
+  if (sel) {
+    const want = JSON.stringify(m);
+    const hit = [...sel.options].find((o) => o.value === want);
+    if (hit) sel.value = want;
+  }
+}
+
+function nextFreeModel() {
+  const cur = state.model?.modelID;
+  const pool = state.freeModels.filter(
+    (id) => id !== cur && !state.fallback.tried.has(id)
+  );
+  return pool.length ? { providerID: "opencode", modelID: pool[0] } : null;
+}
+
+async function tryFallback(status) {
+  if (state.fallback.busy) return;
+  if (!isLimitStatus(status)) return;
+  if (state.model?.providerID !== "opencode") return; // not a free model — leave it alone
+  if (!state.lastUserText) return;
+
+  state.fallback.tried.add(state.model.modelID);
+  const next = nextFreeModel();
+  const when = status.next
+    ? new Date(status.next).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+    : "";
+
+  if (!next) {
+    addSystemNote(
+      `⏳ Every free model is rate-limited right now${when ? ` — retry at ${when}` : ""}. ` +
+        `Pick another provider in the model menu, or subscribe to OpenCode Go.`
+    );
+    return;
+  }
+
+  state.fallback.busy = true;
+  const from = state.model.modelID;
+  try {
+    await abort();                       // stop the limping run first
+    await new Promise((r) => setTimeout(r, 600));
+    dropFailedAttempt();                 // hide the rate-limit error card
+    setModel(next);
+    addSystemNote(`⚡ ${from} hit the free usage cap — retried on ${next.modelID}`);
+    state.busy = false;
+    await send(state.lastUserText, { replay: true });
+  } finally {
+    state.fallback.busy = false;
+  }
+}
+
+// remove assistant bubbles that ended in an error (the rate-limited attempt)
+function dropFailedAttempt() {
+  for (const [mid, msg] of [...state.messages.entries()]) {
+    if (msg.role !== "user" && msg.error) {
+      state.messages.delete(mid);
+      const el = qs(`#messages [data-mid="${mid}"]`);
+      if (el) el.remove();
+    }
   }
 }
 
@@ -380,6 +472,12 @@ function ingestMessageInfo(info) {
   if (info.time?.created) msg.time = info.time;
   if (info.error && info.error.name) msg.error = info.error;
   state.messages.set(info.id, msg);
+
+  // some failures arrive only as a message error (no session.status event)
+  if (info.error && !state.status && state.busy && state.lastUserText) {
+    const text = info.error.data?.message || info.error.name || "";
+    tryFallback({ type: "error", message: text }).catch((e) => console.error("fallback", e));
+  }
 }
 
 function ingestPart(part) {
@@ -579,6 +677,8 @@ function addSystemNote(text) {
 function handleStatus(props) {
   state.status = props.status || null;
   renderStatus();
+  // a free-tier cap here would leave the chat dead — hop to the next free model
+  if (state.status) tryFallback(state.status).catch((e) => console.error("fallback", e));
 }
 
 function renderStatus() {

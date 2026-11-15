@@ -254,9 +254,46 @@ The terminal config is **never touched** — the light workspace is an
 isolated folder with its own config that disables MCP. Default lives under
 a fresh localStorage key so existing browsers switch once automatically.
 
-**Also:** opencode's *free-tier quota* is separate from context. When it
-exhausts, the UI shows an honest amber banner (`retry at HH:MM` + Stop)
-instead of a silent hang.
+**Also:** opencode's *free-tier quota* is separate from context. It is
+**one allowance per account shared by every free model**, and the gateway
+refuses free models when the call does not come from OpenCode itself
+(`Free-tier chat models require OpenCode` — a plain `curl` with the same
+token gets `FreeUsageLimitError` even while the app is answering fine).
+
+### The "Free usage exceeded · retry at 05:39" wall — solved
+
+When one free model hits the cap, the chat used to be dead until the
+window refilled. Now the app fixes it itself:
+
+```
+user sends                    free model answers "Free usage exceeded"
+   │                                        │
+   │                                        ▼
+   │                         session.status {type:"retry"}
+   │                                        │
+   ▼                                        ▼
+abort the limping run  ──►  pick the next free model  ──►  replay the
+                                                            same message
+   │
+   └─► chat note: "⚡ deepseek-v4.1-flash-free hit the free usage cap
+                    — retried on big-pickle"
+```
+
+| Detail | Behaviour |
+|---|---|
+| Detection | `session.status` retry **or** an error part matching `free usage / usage limit / rate limit / quota / 429` |
+| Scope | only `opencode/*` free models (paid/other providers are left alone) |
+| Budget | each model is tried once; a manual pick from the dropdown resets the budget |
+| Exhausted | honest note: *every free model is rate-limited — retry at HH:MM*, with the Go link |
+
+Proof (`screenshots/16-free-model-auto-fallback.png`): a real run where
+`deepseek-v4.1-flash-free` was rate-limited, the app switched to
+`big-pickle` and answered the same question 4.4 s later — no user action.
+
+A note on **why the terminal kept working**: free-tier limits are counted
+per model, so a terminal session on another free model still had room while
+the browser's pick was capped. Nothing was broken in the bridge — the app
+just needed to stop depending on a single model.
 
 ## Feature checklist (all verified with real runs)
 
@@ -269,6 +306,8 @@ instead of a silent hang.
 - KaTeX math; rich-text + plain-text copy of any reply
 - Voice: 🎤 orb overlay with live transcript (sends on silence), 🔊 read-aloud
 - Provider limits / retries as amber banner (never a silent hang)
+- **Auto-fallback**: a rate-limited free model is swapped for the next one and
+  the message replayed automatically (no dead chat, no manual retry)
 - Dark-only theme, mobile responsive (drawer sidebar, safe-area padding)
 - `prefers-reduced-motion` respected
 
